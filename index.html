@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ua">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Калькулятор оценок</title>
+    <title>Калькулятор оцінок</title>
     <style>
         * {
             margin: 0;
@@ -443,6 +443,14 @@
             currentKR2: []
         };
 
+    function renderAll() {
+    renderSemester(1);
+    renderSemester(2);
+    renderYearResults();
+    updateSubject2Select();
+    calculateRecommendations();
+}
+
         async function loadDataFromWorker() {
             try {
                 const response = await fetch(WORKER_URL, {
@@ -457,12 +465,12 @@
                     if (saved && saved.semester1) { 
                         data = saved;
                     }
-                    console.log("Данные загружены с сервера.");
+                    console.log("Data load for server.");
                 } else {
-                    console.error("Ошибка загрузки данных с сервера:", response.statusText);
+                    console.error("Err load data for server:", response.statusText);
                 }
             } catch (e) {
-                console.error("Ошибка сети при загрузке:", e);
+                console.error("Erro load worker:", e);
             }
         }
 
@@ -477,20 +485,35 @@
                 });
 
                 if (response.ok) {
-                    console.log("Данные успешно сохранены на сервере.");
+                    console.log("Data add to server.");
                 } else {
-                    console.error("Ошибка сохранения данных на сервере:", response.statusText);
+                    console.error("Err add data for server:", response.statusText);
                 }
             } catch (e) {
-                console.error("Ошибка сети при сохранении:", e);
+                console.error("Err for catch:", e);
             }
         }
         
         
-        async function loadData() {
-            await loadDataFromWorker();
-            renderAll();
-        }
+async function loadData() {
+    await loadDataFromWorker();
+    renderAll();
+}
+
+loadData();
+
+setInterval(async () => {
+    const oldData = JSON.stringify(data);
+
+    const serverData = await fetch(WORKER_URL).then(r => r.json()).catch(() => null);
+
+    if (!serverData) return;
+
+    if (JSON.stringify(serverData) !== oldData) {
+        data = serverData;
+        renderAll();
+    }
+}, 5000);
 
         function saveData() {
             saveDataToWorker();
@@ -657,24 +680,28 @@
                 </div>
             `;
         }
-        function deleteSubject(semester, index) {
-            if (confirm('Видалити цей предмет?')) {
-                data[`semester${semester}`].splice(index, 1);
-                if (semester === 1) {
-                    const deletedName = data.semester1[index].name;
-                    const index2 = data.semester2.findIndex(s => s.name === deletedName);
-                    if (index2 !== -1) {
-                        data.semester2.splice(index2, 1);
-                    }
-                }
-                saveData();
-                renderSemester(semester);
-                if (semester === 1) {
-                    updateSubject2Select();
-                    calculateRecommendations();
-                }
-            }
+function deleteSubject(semester, index) {
+    if (!confirm('Видалити цей предмет?')) return;
+
+    const deletedName = data[`semester${semester}`][index].name;
+
+    data[`semester${semester}`].splice(index, 1);
+
+    if (semester === 1) {
+        const index2 = data.semester2.findIndex(s => s.name === deletedName);
+        if (index2 !== -1) {
+            data.semester2.splice(index2, 1);
         }
+    }
+
+    saveData();
+    renderSemester(semester);
+
+    if (semester === 1) {
+        updateSubject2Select();
+        calculateRecommendations();
+    }
+}
         function updateSubject2Select() {
             const select = document.getElementById('subject2Select');
             select.innerHTML = '<option value="">Виберіть предмет</option>' +
@@ -699,60 +726,64 @@
             }
             let html = '<h3>Рекомендації для досягнення мети ' + data.targetGrade + ' балів</h3>';
             
-            data.semester1.forEach(subject1 => {
-                const avg1 = calculateAverage(subject1.grades, subject1.krGrades);
-                const subject2 = data.semester2.find(s => s.name === subject1.name);
-                const avg2 = subject2 ? calculateAverage(subject2.grades, subject2.krGrades) : 0;
-                const currentYearAvg = subject2 ? (avg1 + avg2) / 2 : avg1;
-                
-                const neededAvgForYear = data.targetGrade * 2 - avg1;
-                
-                let status = '';
-                let gradesSuggestion = '';
-                
-                if (currentYearAvg >= data.targetGrade) {
-                    status = '✅ Ціль досягнута!';
-                    gradesSuggestion = `Річний бал: ${currentYearAvg.toFixed(2)} ≥ ${data.targetGrade}`;
-                } else {
-                    const currentGrades2Count = subject2 ? subject2.grades.length + (calculateKRAverage(subject2.krGrades) || []).length : 0;
-                    
-                    if (neededAvgForYear > 12) {
-                        status = '❌ Неможливо досягти!';
-                        gradesSuggestion = `Потрібен середній ${neededAvgForYear.toFixed(2)} о 2 сем (максимум 12)`;
-                    } else if (neededAvgForYear <= 0) {
-                        status = '✅ Ціль вже досягнута!';
-                        gradesSuggestion = `Річний бал: ${currentYearAvg.toFixed(2)} ≥ ${data.targetGrade}`;
-                    } else {
-                        status = '⚠️ Потрібне зусилля';
-                        
-                        let suggestions = [];
-                        for (let numGradesToAdd = 1; numGradesToAdd <= 10; numGradesToAdd++) {
-                            const currentSum2 = avg2 * currentGrades2Count;
-                            const totalDesiredSum2 = neededAvgForYear * (currentGrades2Count + numGradesToAdd);
-                            const neededSumFromNewGrades = totalDesiredSum2 - currentSum2;
-                            const neededGradeAvg = neededSumFromNewGrades / numGradesToAdd;
-                            
-                            if (neededGradeAvg >= 1 && neededGradeAvg <= 12) {
-                                suggestions.push(`${numGradesToAdd} оцінок по ${Math.ceil(neededGradeAvg)}`);
-                                if (suggestions.length >= 3) break;
-                            }
-                        }
-                        
-                        if (suggestions.length > 0) {
-                            gradesSuggestion = `Потрібен середній ${neededAvgForYear.toFixed(2)} о 2 сем<br>Варіанти: ${suggestions.join(' або ')}`;
-                        } else {
-                            gradesSuggestion = `Потрібен середній ${neededAvgForYear.toFixed(2)} о 2 семестрі`;
-                        }
-                    }
+data.semester1.forEach(subject1 => {
+    const avg1 = calculateAverage(subject1.grades, subject1.krGrades);
+    const subject2 = data.semester2.find(s => s.name === subject1.name);
+    const avg2 = subject2 ? calculateAverage(subject2.grades, subject2.krGrades) : 0;
+    const currentYearAvg = subject2 ? (avg1 + avg2) / 2 : avg1;
+
+    const neededAvgForYear = data.targetGrade * 2 - avg1;
+
+    let status = '';
+    let gradesSuggestion = '';
+
+    if (subject1.grades.length === 0 && subject1.krGrades.length === 0) {
+        status = '⏱️ Додайте оцінки для аналітики';
+        gradesSuggestion = '';
+    } else if (currentYearAvg >= data.targetGrade) {
+        status = '✅ Ціль досягнута!';
+        gradesSuggestion = `Річний бал: ${currentYearAvg.toFixed(2)} ≥ ${data.targetGrade}`;
+    } else {
+        const currentGrades2Count = subject2 ? subject2.grades.length + (calculateKRAverage(subject2.krGrades) || []).length : 0;
+
+        if (neededAvgForYear > 12) {
+            status = '❌ Неможливо досягти!';
+            gradesSuggestion = `Потрібен середній ${neededAvgForYear.toFixed(2)} о 2 сем (максимум 12)`;
+        } else if (neededAvgForYear <= 0) {
+            status = '✅ Ціль вже досягнута!';
+            gradesSuggestion = `Річний бал: ${currentYearAvg.toFixed(2)} ≥ ${data.targetGrade}`;
+        } else {
+            status = '⚠️ Потрібне зусилля';
+            
+            let suggestions = [];
+            for (let numGradesToAdd = 1; numGradesToAdd <= 10; numGradesToAdd++) {
+                const currentSum2 = avg2 * currentGrades2Count;
+                const totalDesiredSum2 = neededAvgForYear * (currentGrades2Count + numGradesToAdd);
+                const neededSumFromNewGrades = totalDesiredSum2 - currentSum2;
+                const neededGradeAvg = neededSumFromNewGrades / numGradesToAdd;
+
+                if (neededGradeAvg >= 1 && neededGradeAvg <= 12) {
+                    suggestions.push(`${numGradesToAdd} оцінок по ${Math.ceil(neededGradeAvg)}`);
+                    if (suggestions.length >= 3) break;
                 }
-                html += `
-                    <div class="recommendation-item">
-                        <strong>${subject1.name}</strong> ${status}<br>
-                        <small style="color: #666;">1 сем: ${avg1.toFixed(2)} | 2 сем: ${avg2.toFixed(2)} | Год: ${currentYearAvg.toFixed(2)}</small><br>
-                        <div style="margin-top: 8px; color: #333;">${gradesSuggestion}</div>
-                    </div>
-                `;
-            });
+            }
+
+            if (suggestions.length > 0) {
+                gradesSuggestion = `Потрібен середній ${neededAvgForYear.toFixed(2)} о 2 сем<br>Варіанти: ${suggestions.join(' або ')}`;
+            } else {
+                gradesSuggestion = `Потрібен середній ${neededAvgForYear.toFixed(2)} о 2 семестрі`;
+            }
+        }
+    }
+
+    html += `
+        <div class="recommendation-item">
+            <strong>${subject1.name}</strong> ${status}<br>
+            <small style="color: #666;">1 сем: ${avg1.toFixed(2)} | 2 сем: ${avg2.toFixed(2)} | Рік: ${currentYearAvg.toFixed(2)}</small><br>
+            <div style="margin-top: 8px; color: #333;">${gradesSuggestion}</div>
+        </div>
+    `;
+});
             container.innerHTML = html;
         }
         function renderYearResults() {
