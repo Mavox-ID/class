@@ -676,7 +676,7 @@
                 return;
             }
 
-            let html = '<h3>Рекомендации для достижения цели</h3>';
+            let html = '<h3>Рекомендации для достижения цели ' + data.targetGrade + ' баллов</h3>';
             
             data.semester1.forEach(subject1 => {
                 const avg1 = calculateAverage(subject1.grades, subject1.krGrades);
@@ -684,25 +684,53 @@
                 const avg2 = subject2 ? calculateAverage(subject2.grades, subject2.krGrades) : 0;
                 const currentYearAvg = subject2 ? (avg1 + avg2) / 2 : avg1;
                 
-                const neededAvg = data.targetGrade * 2 - avg1;
-                const remaining = neededAvg - avg2;
+                const neededAvgForYear = data.targetGrade * 2 - avg1;
                 
                 let status = '';
+                let gradesSuggestion = '';
+                
                 if (currentYearAvg >= data.targetGrade) {
                     status = '✅ Цель достигнута!';
-                } else if (remaining <= 0) {
-                    status = '✅ На верном пути!';
+                    gradesSuggestion = `Годовой балл: ${currentYearAvg.toFixed(2)} ≥ ${data.targetGrade}`;
                 } else {
-                    const gradesCount = subject2 ? subject2.grades.length + calculateKRAverage(subject2.krGrades).length : 0;
-                    const neededGrades = Math.ceil(remaining);
-                    status = `⚠️ Нужно: средний ${neededAvg.toFixed(2)} во 2 сем (еще +${neededGrades.toFixed(1)} балла)`;
+                    const gradesNeeded = subject2 ? subject2.grades.length + calculateKRAverage(subject2.krGrades).length : 0;
+                    
+                    if (neededAvgForYear > 12) {
+                        status = '❌ Невозможно достичь!';
+                        gradesSuggestion = `Нужен средний ${neededAvgForYear.toFixed(2)} во 2 сем (максимум 12)`;
+                    } else if (neededAvgForYear <= 0) {
+                        status = '✅ Цель уже достигнута!';
+                        gradesSuggestion = `Годовой балл: ${currentYearAvg.toFixed(2)} ≥ ${data.targetGrade}`;
+                    } else {
+                        status = '⚠️ Требуется усилие';
+                        
+                        const currentGrades = subject2 ? subject2.grades.length + calculateKRAverage(subject2.krGrades).length : 0;
+                        
+                        let suggestions = [];
+                        for (let numGrades = 1; numGrades <= 10; numGrades++) {
+                            const totalCurrentSum = avg2 * currentGrades;
+                            const neededSum = neededAvgForYear * (currentGrades + numGrades) - totalCurrentSum;
+                            const neededGradeAvg = neededSum / numGrades;
+                            
+                            if (neededGradeAvg >= 1 && neededGradeAvg <= 12) {
+                                suggestions.push(`${numGrades} оценок по ${Math.ceil(neededGradeAvg)}`);
+                                if (suggestions.length >= 3) break;
+                            }
+                        }
+                        
+                        if (suggestions.length > 0) {
+                            gradesSuggestion = `Нужен средний ${neededAvgForYear.toFixed(2)} во 2 сем<br>Варианты: ${suggestions.join(' или ')}`;
+                        } else {
+                            gradesSuggestion = `Нужен средний ${neededAvgForYear.toFixed(2)} во 2 сем`;
+                        }
+                    }
                 }
 
                 html += `
                     <div class="recommendation-item">
-                        <strong>${subject1.name}</strong><br>
-                        1 сем: ${avg1.toFixed(2)} | 2 сем: ${avg2.toFixed(2)} | Год: ${currentYearAvg.toFixed(2)}<br>
-                        ${status}
+                        <strong>${subject1.name}</strong> ${status}<br>
+                        <small style="color: #666;">1 сем: ${avg1.toFixed(2)} | 2 сем: ${avg2.toFixed(2)} | Год: ${currentYearAvg.toFixed(2)}</small><br>
+                        <div style="margin-top: 8px; color: #333;">${gradesSuggestion}</div>
                     </div>
                 `;
             });
