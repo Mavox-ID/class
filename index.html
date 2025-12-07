@@ -430,6 +430,43 @@
         </div>
     </div>
 
+    <div id="editModal" style="
+    position: fixed;
+    top:0; left:0; right:0; bottom:0;
+    background: rgba(0,0,0,0.6);
+    display:none;
+    align-items:center;
+    justify-content:center;
+    z-index: 999;
+">
+    <div style="
+        background:white;
+        padding:20px;
+        width:90%;
+        max-width:500px;
+        border-radius:15px;
+    ">
+        <h2>Редагувати предмет</h2>
+
+        <label>Назва предмета:</label>
+        <input id="editName" type="text" style="width:100%;padding:10px;margin-bottom:15px;border:2px solid #ddd;border-radius:8px;">
+
+        <label>Звичайні оцінки:</label>
+        <div id="editGrades" class="grades-input"></div>
+
+        <label>КР оцінки:</label>
+        <div id="editKR" class="grades-input"></div>
+
+        <button class="btn btn-primary" onclick="addEditGrade(false)">+ Додати оцінку</button>
+        <button class="btn btn-primary" onclick="addEditGrade(true)">+ Додати КР</button>
+
+        <div style="margin-top:20px; text-align:right;">
+            <button class="btn btn-danger" onclick="closeEdit()">Скасувати</button>
+            <button class="btn btn-success" onclick="saveEdit()">Зберегти</button>
+        </div>
+    </div>
+</div>
+
 <script>
         const WORKER_URL = 'https://grade.markd-voznyuk.workers.dev/api/grades'; 
         
@@ -442,6 +479,10 @@
             currentGrades2: [],
             currentKR2: []
         };
+        let editSemester = null;
+        let editIndex = null;
+        let editData = { name: "", grades: [], krGrades: [] };
+        let lastServerData = null;
 
     function renderAll() {
     renderSemester(1);
@@ -489,6 +530,7 @@
                 } else {
                     console.error("Err add data for server:", response.statusText);
                 }
+                lastServerData = JSON.parse(JSON.stringify(data));
             } catch (e) {
                 console.error("Err for catch:", e);
             }
@@ -496,22 +538,44 @@
         
         
 async function loadData() {
-    await loadDataFromWorker();
+    const saved = await fetch(WORKER_URL).then(r => r.json()).catch(() => null);
+    if (saved) {
+        data = saved;
+        lastServerData = JSON.parse(JSON.stringify(saved));
+    }
     renderAll();
 }
 
 loadData();
 
 setInterval(async () => {
-    const oldData = JSON.stringify(data);
+    try {
+        const response = await fetch(WORKER_URL, {
+            method: "GET",
+            headers: { "Content-Type": "application/json" }
+        });
 
-    const serverData = await fetch(WORKER_URL).then(r => r.json()).catch(() => null);
+        if (!response.ok) return;
 
-    if (!serverData) return;
+        const serverData = await response.json();
 
-    if (JSON.stringify(serverData) !== oldData) {
-        data = serverData;
-        renderAll();
+        if (!lastServerData) {
+            lastServerData = JSON.parse(JSON.stringify(serverData));
+            return;
+        }
+
+        const newHash = JSON.stringify(serverData);
+        const oldHash = JSON.stringify(lastServerData);
+
+        if (newHash !== oldHash) {
+            console.log("Update data from server...");
+            lastServerData = JSON.parse(JSON.stringify(serverData));
+            data = serverData;
+            renderAll();
+        }
+
+    } catch (e) {
+        console.log("Err auto update", e);
     }
 }, 5000);
 
@@ -659,7 +723,8 @@ setInterval(async () => {
                             <div><strong>КР оцінки:</strong> ${subject.krGrades.join(', ') || 'немає'}</div>
                             ${krAverages.length > 0 ? `<div><strong>Підсумкові КР:</strong> ${krAverages.join(', ')}</div>` : ''}
                         </div>
-                        <button class="btn btn-danger" style="margin-top: 15px; width: 100%;" onclick="deleteSubject(${semester}, ${index})">Видалити</button>
+                        <button class="btn btn-primary" style="margin-top: 15px; width: 100%;" onclick="openEdit(${semester}, ${index})">Редагувати</button>
+                        <button class="btn btn-danger" style="margin-top: 10px; width: 100%;" onclick="deleteSubject(${semester}, ${index})">Видалити</button>
                     </div>
                 `;
             });
@@ -680,6 +745,76 @@ setInterval(async () => {
                 </div>
             `;
         }
+    function openEdit(semester, index) {
+    editSemester = semester;
+    editIndex = index;
+
+    const subject = data[`semester${semester}`][index];
+
+    editData = JSON.parse(JSON.stringify(subject)); 
+
+    document.getElementById("editName").value = editData.name;
+
+    renderEditGrades();
+
+    document.getElementById("editModal").style.display = "flex";
+}
+
+function closeEdit() {
+    document.getElementById("editModal").style.display = "none";
+}
+
+function renderEditGrades() {
+    document.getElementById("editGrades").innerHTML = editData.grades
+        .map((g, i) => `<div class="grade-tag">${g} <button onclick="removeEditGrade(false, ${i})">×</button></div>`)
+        .join("");
+
+    document.getElementById("editKR").innerHTML = editData.krGrades
+        .map((g, i) => `<div class="grade-tag">${g} <button onclick="removeEditGrade(true, ${i})">×</button></div>`)
+        .join("");
+}
+
+function addEditGrade(isKR) {
+    const value = prompt("Введіть оцінку (1–12):");
+    const num = parseInt(value);
+    if (isNaN(num) || num < 1 || num > 12) return;
+
+    if (isKR) editData.krGrades.push(num);
+    else editData.grades.push(num);
+
+    renderEditGrades();
+}
+
+function removeEditGrade(isKR, index) {
+    if (isKR) editData.krGrades.splice(index, 1);
+    else editData.grades.splice(index, 1);
+
+    renderEditGrades();
+}
+
+function saveEdit() {
+    editData.name = document.getElementById("editName").value.trim();
+    if (!editData.name) {
+        alert("Введіть назву!");
+        return;
+    }
+
+    data[`semester${editSemester}`][editIndex] = editData;
+
+    if (editSemester === 1) {
+        const index2 = data.semester2.findIndex(s => s.name === editData.name);
+        if (index2 !== -1) {
+            data.semester2[index2].name = editData.name;
+        }
+    }
+
+    saveData();
+    renderSemester(editSemester);
+    updateSubject2Select();
+    calculateRecommendations();
+
+    closeEdit();
+}
 function deleteSubject(semester, index) {
     if (!confirm('Видалити цей предмет?')) return;
 
